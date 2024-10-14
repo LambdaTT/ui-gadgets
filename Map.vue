@@ -1,5 +1,5 @@
 <template>
-  <div id="map-container">
+  <div class="map-container" :id="`map-container-${uniqid}`">
     <div class="q-pa-xl absolute bg-white text-center" v-show="mapState == 'empty'" id="map-empty">
       <q-icon size="xl" name="fas fa-map"></q-icon>
       <br>
@@ -14,12 +14,12 @@
         Carregando...
       </div>
     </div>
-    <div id="map" v-show="mapState == 'ready'"></div>
+    <div class="map" :id="`map-${uniqid}`" v-show="mapState == 'ready'"></div>
   </div>
 </template>
 <script>
 export default {
-  name: 'component-map',
+  name: 'ui-gadgets-map',
 
   props: {
     AddressObj: Object,
@@ -28,6 +28,7 @@ export default {
 
   data() {
     return {
+      uniqid: null,
       mapState: 'empty',
       updMapDebounce: null,
     }
@@ -36,16 +37,13 @@ export default {
   watch: {
     AddressObj: {
       handler(val) {
-        if (!!val && !!val.ds_street && !!val.ds_number && !!val.ds_neighborhood && !!val.ds_city && !!val.do_uf) {
-          this.updMapAddress(true);
-        } else this.mapState = 'empty';
+        this.handleAddressObj(val)
       },
       deep: true
     },
 
     AddressStr(val) {
-      if (!this.AddressStr) this.mapState = 'empty';
-      else this.updMapAddress(false);
+      this.handleAddressStr(val);
     }
   },
 
@@ -106,7 +104,7 @@ export default {
         lng: lng
       };
       // The map, centered at location
-      const map = new google.maps.Map(document.getElementById("map"), {
+      const map = new google.maps.Map(document.getElementById(`map-${this.uniqid}`), {
         zoom: 14,
         center: location,
       });
@@ -120,21 +118,46 @@ export default {
       });
 
       this.mapState = 'ready';
+      this.$emit('map-loaded');
     },
+
+    handleAddressStr(val) {
+      if (!this.AddressStr) this.mapState = 'empty';
+      else this.updMapAddress(false);
+    },
+
+    handleAddressObj(val) {
+      if (!!val && !!val.ds_street && !!val.ds_number && !!val.ds_neighborhood && !!val.ds_city && !!val.do_uf) {
+        this.updMapAddress(true);
+      } else this.mapState = 'empty';
+    }
+  },
+
+  created() {
+    // Generate an uniqid
+    var ts = String(new Date().getTime()), i = 0, out = '';
+    for (i = 0; i < ts.length; i += 2) {
+      out += Number(ts.substr(i, 2)).toString(36);
+    }
+    this.uniqid = ('d' + out);
+
+    if (!!this.AddressObj) this.handleAddressObj();
+    else if (!!this.AddressStr) this.handleAddressStr();
+
   },
 }
 </script>
 <style scoped>
-#map-container {
+.map-container {
   position: relative;
   height: 300px;
 }
 
-#map {
+.map {
   height: 300px;
 }
 
-#map-container>.absolute {
+.map-container>.absolute {
   width: 100%;
   height: 300px;
 }
