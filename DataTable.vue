@@ -73,7 +73,7 @@
             <td class="q-pa-lg text-center" :colspan="columns.length">
               <div>
                 <div>
-                  <q-icon size="lg" name="fas fa-folder-open"></q-icon> *
+                  <q-icon size="lg" name="far fa-folder-open"></q-icon> *
                 </div>
                 <div class="text-h6">
                   Lista vazia.
