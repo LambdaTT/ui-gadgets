@@ -200,7 +200,11 @@ export default {
 
           // First field:
           if (i == 0) {
-            result[f] = '$startFilterGroup$lkof|' + this.searchTerm;
+            if(i == filterableColumns.length - 1){
+              result[f] = '$startFilterGroup$lkof$endFilterGroup|' + this.searchTerm;
+            } else {
+              result[f] = '$startFilterGroup$lkof|' + this.searchTerm;
+            }
           }
           // All fields in the middle:
           else if (i < (filterableColumns.length - 1)) {
