@@ -37,7 +37,7 @@ export default {
   watch: {
     AddressObj: {
       handler(val) {
-        this.handleAddressObj(val)
+        this.handleAddressObj(val)      
       },
       deep: true
     },
@@ -49,15 +49,15 @@ export default {
 
   methods: {
     buildFullAddress(address) {
-      if (!address || address.ds_street == null) return null;
+      if (!address || address.ds_addressstreet == null) return null;
 
-      var fullAddress = address.ds_street +
-        ", " + address.ds_number +
-        (address.ds_complement ? ", " + address.ds_complement : '') +
-        ", " + address.ds_neighborhood +
-        ", " + address.ds_city +
-        "/" + address.do_uf +
-        " - CEP: " + address.ds_zipcode;
+      var fullAddress = address.ds_addressstreet +
+        ", " + address.ds_addressnumber +
+        (address.ds_addresscomplement ? ", " + address.ds_addresscomplement : '') +
+        ", " + address.ds_addressneighborhood +
+        ", " + address.ds_addresscity +
+        "/" + address.do_addressuf +
+        " - CEP: " + address.ds_addresszipcode;
 
       return fullAddress;
     },
@@ -84,10 +84,12 @@ export default {
 
       this.mapState = 'loading';
 
-      clearTimeout(this.updMapDebounce);
+      if(this.updMapDebounce)
+        clearTimeout(this.updMapDebounce);
 
       this.updMapDebounce = setTimeout(() => {
         var fullAddress = buildAddress ? this.buildFullAddress(this.AddressObj) : this.AddressStr;
+        
         if (fullAddress == null) return;
 
         this.getGeoCode(fullAddress, (latitude, longitude) => {
@@ -127,7 +129,7 @@ export default {
     },
 
     handleAddressObj(val) {
-      if (!!val && !!val.ds_street && !!val.ds_number && !!val.ds_neighborhood && !!val.ds_city && !!val.do_uf) {
+      if (!!val && !!val.ds_addressstreet && !!val.ds_addressnumber && !!val.ds_addressneighborhood && !!val.ds_addresscity && !!val.do_addressuf) {
         this.updMapAddress(true);
       } else this.mapState = 'empty';
     }
