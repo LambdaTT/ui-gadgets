@@ -34,7 +34,7 @@
               <div v-if="column.name != 'acoes'">
                 <!-- In case no template is set for the td-->
                 <div v-if="!(`cell-${column.name}` in $slots)">
-                  {{ row[column.field] }}
+                  {{ column.format ? column.format(row) : row[column.field] }}
                 </div>
 
                 <!-- In case a template is set for the td-->
@@ -200,7 +200,7 @@ export default {
 
           // First field:
           if (i == 0) {
-            if(i == filterableColumns.length - 1){
+            if (i == filterableColumns.length - 1) {
               result[f] = '$startFilterGroup$lkof$endFilterGroup|' + this.searchTerm;
             } else {
               result[f] = '$startFilterGroup$lkof|' + this.searchTerm;
