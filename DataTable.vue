@@ -44,7 +44,7 @@
               </div>
 
               <!-- Especial td of actions -->
-              <div class="text-center" v-if="column.name == 'acoes'">
+              <div class="text-center" v-if="column.name == 'acoes' && showActions">
                 <q-btn flat dense color="primary" icon="fas fa-ellipsis-v">
                   <q-tooltip>Ações do registro</q-tooltip>
                   <q-menu>
@@ -171,6 +171,24 @@ export default {
       showLoader: false,
       searchTimeout: null,
       loadTimeout: null
+    }
+  },
+
+  computed: {
+    showActions() {
+      for (let i = 0; i < this.Actions.length; i++) {
+        let a = this.Actions[i];
+        if (!!a.hide) {
+          if (typeof a.hide == 'function') {
+            for (let j = 0; j < this.rowsInPage.length; i++) {
+              let row = this.rowsInPage[j];
+              if (!a.hide(row)) return true;
+            }
+          } else return !a.hide;
+        } else return true;
+      }
+
+      return false;
     }
   },
 
