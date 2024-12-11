@@ -61,7 +61,6 @@ export default {
     },
 
     resize() {
-      console.log('SignaturePad resized()')
       this.initialize();
     }
   },
