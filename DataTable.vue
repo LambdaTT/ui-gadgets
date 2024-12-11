@@ -3,7 +3,8 @@
     <!-- Filter and controls -->
     <div class="row q-pb-md">
       <div class="col-12 col-md-8">
-        <q-btn flat round color="primary" size="sm" icon="fas fa-filter" @click="showFilterPanel = !showFilterPanel">
+        <q-btn v-if="columnFilters.length > 0" flat round color="primary" size="sm" icon="fas fa-filter"
+          @click="showFilterPanel = !showFilterPanel">
           <q-tooltip>Filtros da tabela</q-tooltip>
         </q-btn>
         <q-btn flat round color="primary" size="sm" icon="fas fa-columns">
@@ -21,13 +22,22 @@
       </div>
     </div>
     <q-separator></q-separator>
-    <div class="row">
+    <div v-if="columnFilters.length > 0" class="row">
       <div class="col-12">
         <q-expansion-item hide-expand-icon v-model="showFilterPanel" header-style="display:none;">
+          <q-toolbar class="bg-grey-3">
+            <q-toolbar-title>
+              Filtros da Tabela
+            </q-toolbar-title>
+            <q-btn size="sm" icon="fas fa-filter-circle-xmark" color="primary" flat round dense
+              @click="filterParams = {}">
+              <q-tooltip>Limpar filtros</q-tooltip>
+            </q-btn>
+            <q-btn size="sm" icon="fas fa-close" color="primary" flat round dense @click="showFilterPanel = false">
+              <q-tooltip>Fechar painel de filtros</q-tooltip>
+            </q-btn>
+          </q-toolbar>
           <div class="row q-py-sm">
-            <div class="col-12 text-center text-caption">
-              Filtros da Tabela:
-            </div>
             <div v-show="visibleColumns.includes(f.field)" v-for="(f, i) in columnFilters" :key="i"
               class="col-12 col-md-4">
               <InputField clearable dense v-if="(f.filter instanceof Array)" type="select"
@@ -174,7 +184,10 @@ export default {
   name: 'datatable-component',
 
   props: {
-    Name: String,
+    Name: {
+      type: String,
+      required: true
+    },
     PaginationDefaults: Object,
     Settings: Object,
     Columns: Object,
@@ -269,7 +282,7 @@ export default {
       this.pagination.currentPage = 1;
       clearTimeout(this.searchTimeout);
 
-      this.searchTimeout = setTimeout(this.loadData, 300);
+      this.searchTimeout = setTimeout(this.loadData, 200);
     },
 
     async 'pagination.currentPage'() {
@@ -297,13 +310,24 @@ export default {
 
     filterParams: {
       handler() {
+        // Save filters state:
+        localStorage.removeItem(`Datatable.${this.Name}`);
+        
+        if (Object.keys(this.filterParams).length > 0)
+          localStorage.setItem(`Datatable.${this.Name}`, JSON.stringify(this.filterParams));
+
+        this.showLoader = true;
+        this.pagination.currentPage = 1;
+        clearTimeout(this.filterTimeoutIndex);
+
         for (let k in this.filterParams) {
           if (this.filterParams[k] == null)
             delete this.filterParams[k] == null
         }
-        if (!!this.filterTimeoutIndex)
-          clearTimeout(this.filterTimeoutIndex);
-        setTimeout(this.loadData, 300);
+
+        this.filterTimeoutIndex = setTimeout(() => {
+          this.loadData()
+        }, 200);
       },
       deep: true
     }
@@ -392,12 +416,17 @@ export default {
         }
       }
 
+      var filterParams = {};
+      // Handle filters:
+      for (let k in this.filterParams) {
+        let _f = this.columnFilters.find(x => x.field == k);
+        if (_f.filter == 'text')
+          filterParams[k] = `$lkof|${this.filterParams[k]}`;
+        else filterParams[k] = this.filterParams[k]
+      }
+
       result = {
-        ...result, ...this.filterParams.map(k, p => {
-          let _f = this.columnFilters.find(x => x.field == k);
-          if (_f.filter == 'text') return `$lkof|${p}`;
-          return p;
-        })
+        ...result, ...filterParams
       };
       if (!!this.Filter) result = { ...this.Filter(), ...result };
 
@@ -473,6 +502,12 @@ export default {
     this.pagination.limit = this.PaginationDefaults?.limit ? this.PaginationDefaults?.limit : 10;
     this.pagination.sortBy = this.PaginationDefaults?.sortBy ? this.PaginationDefaults?.sortBy : '1';
     this.pagination.sortDir = this.PaginationDefaults?.sortDir ? this.PaginationDefaults?.sortDir : 'ASC';
+
+    var persistedFilters = localStorage.getItem(`Datatable.${this.Name}`);
+    if (!!persistedFilters) {
+      this.filterParams = JSON.parse(persistedFilters);
+      this.showFilterPanel = true;
+    }
 
     this.$emit('reload-fn', this.loadData);
   },
