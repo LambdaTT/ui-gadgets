@@ -1,22 +1,56 @@
 <template>
   <div>
-    <!--Search Input-->
-    <div class="row justify-end">
+    <!-- Filter and controls -->
+    <div class="row q-pb-md">
+      <div class="col-12 col-md-8">
+        <q-btn flat round color="primary" size="sm" icon="fas fa-filter" @click="showFilterPanel = !showFilterPanel">
+          <q-tooltip>Filtros da tabela</q-tooltip>
+        </q-btn>
+        <q-btn flat round color="primary" size="sm" icon="fas fa-columns">
+          <q-tooltip>Colunas visíveis</q-tooltip>
+          <q-menu class="q-pa-sm">
+            <q-option-group v-model="visibleColumns" type="checkbox" :options="columnOptions"></q-option-group>
+          </q-menu>
+        </q-btn>
+      </div>
       <div class="col-12 col-md-4">
-        <q-input square filled clearable label="Pesquisar na lista" v-model="searchTerm">
+        <q-input dense square filled clearable label="Pesquisar na lista" v-model="searchTerm">
           <template v-slot:append>
             <q-icon size="xs" name="fas fa-search" color="grey-8" />
           </template></q-input>
       </div>
     </div>
+    <q-separator></q-separator>
+    <div class="row">
+      <div class="col-12">
+        <q-expansion-item hide-expand-icon v-model="showFilterPanel" header-style="display:none;">
+          <div class="row q-py-sm">
+            <div class="col-12 text-center text-caption">
+              Filtros da Tabela:
+            </div>
+            <div v-show="visibleColumns.includes(f.field)" v-for="(f, i) in columnFilters" :key="i"
+              class="col-12 col-md-4">
+              <InputField clearable dense v-if="(f.filter instanceof Array)" type="select"
+                :Label="`Filtrar por ${f.label}`" :Options="f.filter" v-model="filterParams[f.field]"></InputField>
+              <InputField clearable dense v-else :type="f.filter" :Label="`Filtrar por ${f.label}`"
+                v-model="filterParams[f.field]">
+              </InputField>
+            </div>
+          </div>
+        </q-expansion-item>
+      </div>
+    </div>
+
+    <q-separator></q-separator>
 
     <!-- Table -->
     <div class="datatable-container">
       <table>
         <thead>
           <tr>
-            <th :class="`q-pa-sm ${!!column.sort ? 'cursor-pointer' : ''}`" v-for="column in columns"
-              :key="column.field" @click="sort(column)">
+            <th v-show="visibleColumns.includes(column.field) || column.name == 'acoes'"
+              :class="`q-pa-sm ${!!column.sort ? 'cursor-pointer' : ''}`" v-for="column in columns" :key="column.field"
+              @click="sort(column)">
               {{ column.label }}
               <q-icon v-if="!!column.sort" size="0.9em" :name="getSortIcon(column)"
                 :color="column.sort == this.pagination.sortBy ? 'primary' : null"></q-icon>
@@ -28,7 +62,8 @@
         <!-- Filled -->
         <tbody v-if="rowsInPage.length > 0 && !showLoader">
           <tr v-for="(row, idx) in rowsInPage" :key="idx">
-            <td :class="`q-pa-sm ${(!!column.align) ? `text-${column.align}` : ''}`" v-for="column in columns"
+            <td v-show="visibleColumns.includes(column.field) || column.name == 'acoes'"
+              :class="`q-pa-sm ${(!!column.align) ? `text-${column.align}` : ''}`" v-for="column in columns"
               :key="column.field">
 
               <div v-if="column.name != 'acoes'">
@@ -166,129 +201,16 @@ export default {
       },
       searchTerm: null,
       columns: [],
+      visibleColumns: [],
+      showFilterPanel: false,
+      filterParams: {},
+      filterTimeoutIndex: null,
       rowsInPage: [],
       loading: false,
       showLoader: false,
       searchTimeout: null,
       loadTimeout: null
     }
-  },
-
-  computed: {
-    showActions() {
-      for (let i = 0; i < this.Actions.length; i++) {
-        let a = this.Actions[i];
-        if (!!a.hide) {
-          if (typeof a.hide == 'function') {
-            for (let j = 0; j < this.rowsInPage.length; i++) {
-              let row = this.rowsInPage[j];
-              if (!a.hide(row)) return true;
-            }
-          } else return !a.hide;
-        } else return true;
-      }
-
-      return false;
-    }
-  },
-
-  methods: {
-    setParams() {
-      var result = {
-        '$sort_by': this.pagination.sortBy,
-        '$sort_direction': this.pagination.sortDir,
-        '$page': this.pagination.currentPage,
-        '$limit': Number(this.pagination.limit)
-      };
-
-      if (this.searchTerm) {
-        let f = null;
-        var filterableColumns = [];
-        for (let i = 0; i < this.columns.length; i++) {
-          let column = this.columns[i];
-          if (!column.field || column.field == '' || column.filterable === false) continue;
-
-          filterableColumns.push(column);
-        }
-
-        for (let i = 0; i < filterableColumns.length; i++) {
-          let column = filterableColumns[i];
-
-          f = column.field;
-
-          // First field:
-          if (i == 0) {
-            if (i == filterableColumns.length - 1) {
-              result[f] = '$startFilterGroup$lkof$endFilterGroup|' + this.searchTerm;
-            } else {
-              result[f] = '$startFilterGroup$lkof|' + this.searchTerm;
-            }
-          }
-          // All fields in the middle:
-          else if (i < (filterableColumns.length - 1)) {
-            result[f] = '$or$lkof|' + this.searchTerm;
-          }
-          // Last field:
-          else {
-            result[f] = '$endFilterGroup$or$lkof|' + this.searchTerm;
-          }
-        }
-      }
-
-      if (!!this.Filter) result = { ...this.Filter(), ...result };
-
-      this.$emit('params-changed', result);
-
-      return result;
-    },
-
-    getSortIcon(column) {
-      if (column.sort == this.pagination.sortBy) {
-        if (this.pagination.sortDir == 'ASC') return 'fas fa-sort-up';
-        else if (this.pagination.sortDir == 'DESC') return 'fas fa-sort-down';
-        else return 'fas fa-ban';
-      } else return 'fas fa-sort';
-    },
-
-    sort(column) {
-      if (!!column.sort === false) return;
-
-      if (this.pagination.sortBy == column.sort) {
-        if (this.pagination.sortDir == 'ASC') this.pagination.sortDir = 'DESC';
-        else if (this.pagination.sortDir == 'DESC') this.pagination.sortDir = 'ASC';
-
-      } else {
-        this.pagination.sortBy = column.sort;
-        this.pagination.sortDir = 'ASC';
-      }
-
-    },
-
-    async goToPage(page) {
-      switch (page) {
-        case 'next':
-          if ((this.pagination.currentPage + 1) > this.pagination.finalPage) return;
-          this.pagination.currentPage++;
-          break;
-        case 'prev':
-          if ((this.pagination.currentPage - 1) < 1) return;
-          this.pagination.currentPage--;
-          break;
-        default:
-          if (page != this.pagination.currentPage)
-            this.pagination.currentPage = page;
-      }
-    },
-
-    async loadData() {
-      if (!this.loading) {
-        // turn on loading indicator
-        this.loading = true;
-
-        // fetch data from server
-        await this.LoadDataFn(this.setParams())
-      }
-    },
   },
 
   watch: {
@@ -367,11 +289,176 @@ export default {
       await this.loadData()
     },
 
+    visibleColumns(newVal) {
+      if (newVal.length < 1) {
+        this.visibleColumns = [this.Columns[0].field];
+      }
+    },
+
+    filterParams: {
+      handler() {
+        for (let k in this.filterParams) {
+          if (this.filterParams[k] == null)
+            delete this.filterParams[k] == null
+        }
+        if (!!this.filterTimeoutIndex)
+          clearTimeout(this.filterTimeoutIndex);
+        setTimeout(this.loadData, 300);
+      },
+      deep: true
+    }
+
+  },
+
+  computed: {
+    showActions() {
+      for (let i = 0; i < this.Actions.length; i++) {
+        let a = this.Actions[i];
+        if (!!a.hide) {
+          if (typeof a.hide == 'function') {
+            for (let j = 0; j < this.rowsInPage.length; i++) {
+              let row = this.rowsInPage[j];
+              if (!a.hide(row)) return true;
+            }
+          } else return !a.hide;
+        } else return true;
+      }
+
+      return false;
+    },
+
+    columnOptions() {
+      return this.columns.map(clm => {
+        return clm.name != 'acoes' ? {
+          label: clm.label,
+          value: clm.field,
+        } : null;
+      }).filter(item => item != null);
+    },
+
+    columnFilters() {
+      return this.Columns.map(clm => {
+        return !!clm.filter ? {
+          label: clm.label,
+          field: clm.field,
+          filter: clm.filter
+        } : null;
+      }).filter(item => item != null);
+    }
+  },
+
+  methods: {
+    setParams() {
+      var result = {
+        '$sort_by': this.pagination.sortBy,
+        '$sort_direction': this.pagination.sortDir,
+        '$page': this.pagination.currentPage,
+        '$limit': Number(this.pagination.limit)
+      };
+
+      // Search:
+      if (this.searchTerm) {
+        let f = null;
+        var filterableColumns = [];
+        for (let i = 0; i < this.columns.length; i++) {
+          let column = this.columns[i];
+          if (!column.field || column.field == '' || column.searchable === false) continue;
+          if (column.field in this.filterParams) continue;
+
+          filterableColumns.push(column);
+        }
+
+        for (let i = 0; i < filterableColumns.length; i++) {
+          let column = filterableColumns[i];
+
+          f = column.field;
+
+          // First field:
+          if (i == 0) {
+            if (i == filterableColumns.length - 1) {
+              result[f] = '$startFilterGroup$lkof$endFilterGroup|' + this.searchTerm;
+            } else {
+              result[f] = '$startFilterGroup$lkof|' + this.searchTerm;
+            }
+          }
+          // All fields in the middle:
+          else if (i < (filterableColumns.length - 1)) {
+            result[f] = '$or$lkof|' + this.searchTerm;
+          }
+          // Last field:
+          else {
+            result[f] = '$endFilterGroup$or$lkof|' + this.searchTerm;
+          }
+        }
+      }
+
+      result = {
+        ...result, ...this.filterParams.map(k, p => {
+          let _f = this.columnFilters.find(x => x.field == k);
+          if (_f.filter == 'text') return `$lkof|${p}`;
+          return p;
+        })
+      };
+      if (!!this.Filter) result = { ...this.Filter(), ...result };
+
+      this.$emit('params-changed', result);
+
+      return result;
+    },
+
+    getSortIcon(column) {
+      if (column.sort == this.pagination.sortBy) {
+        if (this.pagination.sortDir == 'ASC') return 'fas fa-sort-up';
+        else if (this.pagination.sortDir == 'DESC') return 'fas fa-sort-down';
+        else return 'fas fa-ban';
+      } else return 'fas fa-sort';
+    },
+
+    sort(column) {
+      if (!!column.sort === false) return;
+
+      if (this.pagination.sortBy == column.sort) {
+        if (this.pagination.sortDir == 'ASC') this.pagination.sortDir = 'DESC';
+        else if (this.pagination.sortDir == 'DESC') this.pagination.sortDir = 'ASC';
+
+      } else {
+        this.pagination.sortBy = column.sort;
+        this.pagination.sortDir = 'ASC';
+      }
+
+    },
+
+    async goToPage(page) {
+      switch (page) {
+        case 'next':
+          if ((this.pagination.currentPage + 1) > this.pagination.finalPage) return;
+          this.pagination.currentPage++;
+          break;
+        case 'prev':
+          if ((this.pagination.currentPage - 1) < 1) return;
+          this.pagination.currentPage--;
+          break;
+        default:
+          if (page != this.pagination.currentPage)
+            this.pagination.currentPage = page;
+      }
+    },
+
+    async loadData() {
+      if (!this.loading) {
+        // turn on loading indicator
+        this.loading = true;
+
+        // fetch data from server
+        await this.LoadDataFn(this.setParams())
+      }
+    },
   },
 
   created() {
     // Set columns:
     this.columns = [...this.Columns];
+    this.visibleColumns = this.Columns.map(clm => clm.field)
     if (this.Actions && this.Actions?.length > 0)
       this.columns.push({
         name: 'acoes',
