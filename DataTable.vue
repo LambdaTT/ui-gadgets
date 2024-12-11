@@ -13,6 +13,12 @@
             <q-option-group v-model="visibleColumns" type="checkbox" :options="columnOptions"></q-option-group>
           </q-menu>
         </q-btn>
+        <q-btn v-if="!!ExportXLS" flat round color="primary" size="sm" icon="fas fa-file-excel">
+          <q-tooltip>Exportar para XLS</q-tooltip>
+        </q-btn>
+        <q-btn v-if="!!Printable" flat round color="primary" size="sm" icon="fas fa-print">
+          <q-tooltip>Imprimir</q-tooltip>
+        </q-btn>
       </div>
       <div class="col-12 col-md-4">
         <q-input dense square filled clearable label="Pesquisar na lista" v-model="searchTerm">
@@ -38,11 +44,8 @@
             </q-btn>
           </q-toolbar>
           <div class="row q-py-sm">
-            <div v-show="visibleColumns.includes(f.field)" v-for="(f, i) in columnFilters" :key="i"
-              class="col-12 col-md-4">
-              <InputField clearable dense v-if="(f.filter instanceof Array)" type="select"
-                :Label="`Filtrar por ${f.label}`" :Options="f.filter" v-model="filterParams[f.field]"></InputField>
-              <InputField clearable dense v-else :type="f.filter" :Label="`Filtrar por ${f.label}`"
+            <div v-for="(f, i) in columnFilters" :key="i" class="col-12 col-md-4">
+              <InputField clearable dense :type="f.type" :Label="`Filtrar por ${f.label}`" :Options="f.options ?? []"
                 v-model="filterParams[f.field]">
               </InputField>
             </div>
@@ -58,7 +61,7 @@
       <table>
         <thead>
           <tr>
-            <th v-show="visibleColumns.includes(column.field) || column.name == 'acoes'"
+            <th v-show="visibleColumns.includes(column.field) || column.name == 'actions'"
               :class="`q-pa-sm ${!!column.sort ? 'cursor-pointer' : ''}`" v-for="column in columns" :key="column.field"
               @click="sort(column)">
               {{ column.label }}
@@ -72,11 +75,11 @@
         <!-- Filled -->
         <tbody v-if="rowsInPage.length > 0 && !showLoader">
           <tr v-for="(row, idx) in rowsInPage" :key="idx">
-            <td v-show="visibleColumns.includes(column.field) || column.name == 'acoes'"
+            <td v-show="visibleColumns.includes(column.field) || column.name == 'actions'"
               :class="`q-pa-sm ${(!!column.align) ? `text-${column.align}` : ''}`" v-for="column in columns"
               :key="column.field">
 
-              <div v-if="column.name != 'acoes'">
+              <div v-if="column.name != 'actions'">
                 <!-- In case no template is set for the td-->
                 <div v-if="!(`cell-${column.name}` in $slots)">
                   {{ column.format ? column.format(row) : row[column.field] }}
@@ -89,7 +92,7 @@
               </div>
 
               <!-- Especial td of actions -->
-              <div class="text-center" v-if="column.name == 'acoes' && showActions">
+              <div class="text-center" v-if="column.name == 'actions' && showActions">
                 <q-btn flat dense color="primary" icon="fas fa-ellipsis-v">
                   <q-tooltip>Ações do registro</q-tooltip>
                   <q-menu>
@@ -189,28 +192,29 @@ export default {
       required: true
     },
     PaginationDefaults: Object,
-    Settings: Object,
     Columns: Object,
     RawData: Object,
     Actions: Object,
     LoadDataFn: Function,
-    Filter: Function
+    Filter: Function,
+    ExportXLS: String,
+    Printable: Boolean,
   },
 
   data() {
     return {
       pagination: {
         pages: [],
-        currentPage: null,
+        currentPage: 1,
         finalPage: null,
         totalPages: null,
         totalItems: null,
         pageFirstItem: null,
         pageLastItem: null,
         pageLastIndex: null,
-        limit: null,
+        limit: 10,
         sortBy: null,
-        sortDir: null,
+        sortDir: 'ASC',
       },
       searchTerm: null,
       columns: [],
@@ -220,8 +224,8 @@ export default {
       filterTimeoutIndex: null,
       rowsInPage: [],
       loading: false,
-      showLoader: false,
-      searchTimeout: null,
+      showLoader: true,
+      loadTimeout: null,
       loadTimeout: null
     }
   },
@@ -233,44 +237,7 @@ export default {
 
     RawData: {
       handler(data) {
-        this.pagination.finalPage = this.pagination.currentPage + (Math.ceil(data.length / this.pagination.limit) - 1);
-
-        var initial = null;
-
-        if (this.pagination.finalPage - this.pagination.currentPage < 1) {
-          initial = this.pagination.currentPage - 4;
-        } else if (this.pagination.finalPage - this.pagination.currentPage < 2) {
-          initial = this.pagination.currentPage - 3;
-        } else {
-          initial = this.pagination.currentPage - 2;
-        }
-        initial = initial < 1 ? 1 : initial;
-
-        this.pagination.pages = [];
-        for (let i = initial; i <= this.pagination.finalPage; i++) {
-          this.pagination.pages.push(i);
-          if (this.pagination.pages.length > 4) break;
-        }
-
-        this.pagination.pageFirstItem = data.length > 0 ? (((this.pagination.currentPage * this.pagination.limit) - this.pagination.limit) + 1) : 0;
-
-        if (data.length > 0) {
-          this.pagination.pageLastItem = this.pagination.pageFirstItem;
-          for (let i = 1; i < data.length; i++) {
-            this.pagination.pageLastItem++;
-          }
-        } else this.pagination.pageLastItem = 0;
-
-        this.pagination.pageLastIndex = data.length < this.pagination.limit ? data.length - 1 : this.pagination.limit - 1;
-
-        this.rowsInPage = [];
-        for (let i = 0; i <= this.pagination.pageLastIndex; i++) {
-          this.rowsInPage.push(this.RawData[i]);
-        }
-
-        if (this.rowsInPage.length == 0 && this.pagination.currentPage > 1) {
-          this.goToPage('prev');
-        }
+        this.paginate(data);
         // turn off loading indicator
         this.loading = false
       },
@@ -280,41 +247,77 @@ export default {
     searchTerm() {
       this.showLoader = true;
       this.pagination.currentPage = 1;
-      clearTimeout(this.searchTimeout);
+      clearTimeout(this.loadTimeout);
 
-      this.searchTimeout = setTimeout(this.loadData, 200);
+      this.loadTimeout = setTimeout(() => {
+        if (!!this.searchTerm)
+          localStorage.setItem(`Datatable.${this.Name}.searchTerm`, this.searchTerm)
+        else localStorage.removeItem(`Datatable.${this.Name}.searchTerm`)
+        this.loadData()
+      }, 200);
     },
 
-    async 'pagination.currentPage'() {
-      await this.loadData()
+    'pagination.currentPage'() {
+      var persistedPagination = localStorage.getItem(`Datatable.${this.Name}.pagination`);
+      persistedPagination = !!persistedPagination ? JSON.parse(persistedPagination) : {};
+      persistedPagination.currentPage = this.pagination.currentPage;
+      localStorage.removeItem(`Datatable.${this.Name}.pagination`)
+      localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
+      clearTimeout(this.loadTimeout);
+
+      this.loadTimeout = setTimeout(this.loadData, 200);
     },
 
-    async 'pagination.limit'() {
+    'pagination.limit'() {
       this.pagination.currentPage = 1;
-      await this.loadData()
+      var persistedPagination = localStorage.getItem(`Datatable.${this.Name}.pagination`);
+      persistedPagination = !!persistedPagination ? JSON.parse(persistedPagination) : {};
+      persistedPagination.currentPage = this.pagination.currentPage;
+      persistedPagination.limit = this.pagination.limit;
+      localStorage.removeItem(`Datatable.${this.Name}.pagination`)
+      localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
+      clearTimeout(this.loadTimeout);
+
+      this.loadTimeout = setTimeout(this.loadData, 200);
     },
 
-    async 'pagination.sortBy'() {
-      await this.loadData()
+    'pagination.sortBy'() {
+      var persistedPagination = localStorage.getItem(`Datatable.${this.Name}.pagination`);
+      persistedPagination = !!persistedPagination ? JSON.parse(persistedPagination) : {};
+      persistedPagination.sortBy = this.pagination.sortBy;
+      localStorage.removeItem(`Datatable.${this.Name}.pagination`)
+      localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
+      clearTimeout(this.loadTimeout);
+
+      this.loadTimeout = setTimeout(this.loadData, 200);
     },
 
-    async 'pagination.sortDir'() {
-      await this.loadData()
+    'pagination.sortDir'() {
+      var persistedPagination = localStorage.getItem(`Datatable.${this.Name}.pagination`);
+      persistedPagination = !!persistedPagination ? JSON.parse(persistedPagination) : {};
+      persistedPagination.sortDir = this.pagination.sortDir;
+      localStorage.removeItem(`Datatable.${this.Name}.pagination`)
+      localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
+      clearTimeout(this.loadTimeout);
+
+      this.loadTimeout = setTimeout(this.loadData, 200);
     },
 
     visibleColumns(newVal) {
       if (newVal.length < 1) {
         this.visibleColumns = [this.Columns[0].field];
       }
+
+      localStorage.setItem(`Datatable.${this.Name}.visibleColumns`, JSON.stringify(newVal));
     },
 
     filterParams: {
       handler() {
         // Save filters state:
-        localStorage.removeItem(`Datatable.${this.Name}`);
-        
+        localStorage.removeItem(`Datatable.${this.Name}.filters`);
+
         if (Object.keys(this.filterParams).length > 0)
-          localStorage.setItem(`Datatable.${this.Name}`, JSON.stringify(this.filterParams));
+          localStorage.setItem(`Datatable.${this.Name}.filters`, JSON.stringify(this.filterParams));
 
         this.showLoader = true;
         this.pagination.currentPage = 1;
@@ -353,7 +356,7 @@ export default {
 
     columnOptions() {
       return this.columns.map(clm => {
-        return clm.name != 'acoes' ? {
+        return clm.name != 'actions' ? {
           label: clm.label,
           value: clm.field,
         } : null;
@@ -362,11 +365,17 @@ export default {
 
     columnFilters() {
       return this.Columns.map(clm => {
-        return !!clm.filter ? {
-          label: clm.label,
-          field: clm.field,
-          filter: clm.filter
-        } : null;
+        if (!!clm.filter == false) return null;
+
+        if (typeof clm.filter == 'string') {
+          return {
+            label: clm.label,
+            field: clm.field,
+            type: clm.filter
+          };
+        }
+
+        return { label: clm.label, ...clm.filter };
       }).filter(item => item != null);
     }
   },
@@ -420,8 +429,10 @@ export default {
       // Handle filters:
       for (let k in this.filterParams) {
         let _f = this.columnFilters.find(x => x.field == k);
-        if (_f.filter == 'text')
+        if (_f.type == 'text')
           filterParams[k] = `$lkof|${this.filterParams[k]}`;
+        else if (_f.type == 'daterange' || _f.type == 'datetimerange')
+          filterParams[k] = `$btwn|${this.filterParams[k].from}|${this.filterParams[k].to}`;
         else filterParams[k] = this.filterParams[k]
       }
 
@@ -482,31 +493,97 @@ export default {
         await this.LoadDataFn(this.setParams())
       }
     },
+
+    paginate(data) {
+      this.pagination.finalPage = this.pagination.currentPage + (Math.ceil(data.length / this.pagination.limit) - 1);
+
+      var initial = null;
+
+      if (this.pagination.finalPage - this.pagination.currentPage < 1) {
+        initial = this.pagination.currentPage - 4;
+      } else if (this.pagination.finalPage - this.pagination.currentPage < 2) {
+        initial = this.pagination.currentPage - 3;
+      } else {
+        initial = this.pagination.currentPage - 2;
+      }
+      initial = initial < 1 ? 1 : initial;
+
+      this.pagination.pages = [];
+      for (let i = initial; i <= this.pagination.finalPage; i++) {
+        this.pagination.pages.push(i);
+        if (this.pagination.pages.length > 4) break;
+      }
+
+      this.pagination.pageFirstItem = data.length > 0 ? (((this.pagination.currentPage * this.pagination.limit) - this.pagination.limit) + 1) : 0;
+
+      if (data.length > 0) {
+        this.pagination.pageLastItem = this.pagination.pageFirstItem;
+        for (let i = 1; i < data.length; i++) {
+          this.pagination.pageLastItem++;
+        }
+      } else this.pagination.pageLastItem = 0;
+
+      this.pagination.pageLastIndex = data.length < this.pagination.limit ? data.length - 1 : this.pagination.limit - 1;
+
+      this.rowsInPage = [];
+      for (let i = 0; i <= this.pagination.pageLastIndex; i++) {
+        this.rowsInPage.push(this.RawData[i]);
+      }
+
+      if (this.rowsInPage.length == 0 && this.pagination.currentPage > 1) {
+        this.goToPage('prev');
+      }
+    }
   },
 
-  created() {
+  async mounted() {
     // Set columns:
     this.columns = [...this.Columns];
-    this.visibleColumns = this.Columns.map(clm => clm.field)
+    this.visibleColumns = JSON.parse(localStorage.getItem(`Datatable.${this.Name}.visibleColumns`)) ?? this.Columns.map(clm => clm.field)
     if (this.Actions && this.Actions?.length > 0)
       this.columns.push({
-        name: 'acoes',
+        name: 'actions',
         label: 'Ações',
         align: 'center',
         sortable: false,
         filterable: false
       });
 
-    // Set default pagination:
-    this.pagination.currentPage = this.PaginationDefaults?.currentPage ? this.PaginationDefaults?.currentPage : 1;
-    this.pagination.limit = this.PaginationDefaults?.limit ? this.PaginationDefaults?.limit : 10;
-    this.pagination.sortBy = this.PaginationDefaults?.sortBy ? this.PaginationDefaults?.sortBy : '1';
-    this.pagination.sortDir = this.PaginationDefaults?.sortDir ? this.PaginationDefaults?.sortDir : 'ASC';
-
-    var persistedFilters = localStorage.getItem(`Datatable.${this.Name}`);
+    // Set persisted filters:
+    var persistedFilters = localStorage.getItem(`Datatable.${this.Name}.filters`);
     if (!!persistedFilters) {
-      this.filterParams = JSON.parse(persistedFilters);
       this.showFilterPanel = true;
+      setTimeout(() => this.filterParams = JSON.parse(persistedFilters), 100)
+    }
+
+    // Set persisted search term:
+    this.searchTerm = localStorage.getItem(`Datatable.${this.Name}.searchTerm`) ?? null;
+
+    // Set sorting:
+    for (let i = this.Columns.length - 1; i >= 0; i--) {
+      let clm = this.Columns[i];
+      if (!!clm.sortByDefault) {
+        this.pagination.sortBy = clm.sort;
+        this.pagination.sortDir = clm.sortByDefault;
+        break;
+      }
+
+      if (!!clm.sort) {
+        this.pagination.sortBy = clm.sort;
+      }
+    }
+
+    // Set persisted pagination:
+    var persistedPagination = localStorage.getItem(`Datatable.${this.Name}.pagination`);
+    if (!!persistedPagination) {
+      persistedPagination = JSON.parse(persistedPagination);
+      for (let k in persistedPagination)
+        if (k in this.pagination && k != 'currentPage')
+          this.pagination[k] = persistedPagination[k]
+
+      if (!!persistedPagination.currentPage && persistedPagination.currentPage != 1) {
+        setTimeout(() => this.pagination.currentPage = persistedPagination.currentPage, 200);
+      }
     }
 
     this.$emit('reload-fn', this.loadData);
@@ -516,13 +593,22 @@ export default {
 
 <style scoped>
 .datatable-container {
+  position: relative;
   overflow-x: scroll;
   width: 100%;
+  max-height: 500px;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
+}
+
+thead {
+  top: 0px;
+  position: sticky;
+  z-index: 2;
+  background-color: white;
 }
 
 tbody>tr:nth-child(even) {
