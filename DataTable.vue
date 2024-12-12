@@ -1,11 +1,14 @@
 <template>
   <div>
-    <!-- Filter and controls -->
+    <!-- Options and Controls -->
     <div class="row q-pb-md">
       <div class="col-12 col-md-8">
         <q-btn v-if="columnFilters.length > 0" flat round color="primary" size="sm" icon="fas fa-filter"
           @click="showFilterPanel = !showFilterPanel">
           <q-tooltip>Filtros da tabela</q-tooltip>
+        </q-btn>
+        <q-btn flat round color="primary" size="sm" icon="fas fa-sync" @click="reload()">
+          <q-tooltip>Atualizar lista</q-tooltip>
         </q-btn>
         <q-btn flat round color="primary" size="sm" icon="fas fa-columns">
           <q-tooltip>Colunas visíveis</q-tooltip>
@@ -13,10 +16,23 @@
             <q-option-group v-model="visibleColumns" type="checkbox" :options="columnOptions"></q-option-group>
           </q-menu>
         </q-btn>
-        <q-btn v-if="!!ExportXLS" flat round color="primary" size="sm" icon="fas fa-file-excel">
-          <q-tooltip>Exportar para XLS</q-tooltip>
+        <q-btn v-if="!!Export" flat round color="primary" size="sm" icon="fas fa-file-download">
+          <q-tooltip>Opções de Exportação</q-tooltip>
+          <q-menu class="q-pa-sm">
+            <q-list class="text-primary">
+              <q-item v-close-popup dense v-for="(opt, idx) in exportOptions" :key="idx" clickable
+                @click="exportFile(opt.filetype, opt.filename)">
+                <q-item-section avatar>
+                  <q-icon :name="opt.icon" size="xs"></q-icon>
+                </q-item-section>
+                <q-item-section>
+                  {{ opt.label }}
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
         </q-btn>
-        <q-btn v-if="!!Printable" flat round color="primary" size="sm" icon="fas fa-print">
+        <q-btn v-if="!!Printable" flat round color="primary" size="sm" icon="fas fa-print" @click="printData()">
           <q-tooltip>Imprimir</q-tooltip>
         </q-btn>
       </div>
@@ -27,7 +43,10 @@
           </template></q-input>
       </div>
     </div>
+
     <q-separator></q-separator>
+
+    <!-- Filters Panel -->
     <div v-if="columnFilters.length > 0" class="row">
       <div class="col-12">
         <q-expansion-item hide-expand-icon v-model="showFilterPanel" header-style="display:none;">
@@ -72,9 +91,9 @@
           </tr>
         </thead>
 
-        <!-- Filled -->
-        <tbody v-if="rowsInPage.length > 0 && !showLoader">
-          <tr v-for="(row, idx) in rowsInPage" :key="idx">
+        <!-- Ready State -->
+        <tbody v-if="state == 'ready'">
+          <tr v-for="(row, idx) in dataInPage" :key="idx">
             <td v-show="visibleColumns.includes(column.field) || column.name == 'actions'"
               :class="`q-pa-sm ${(!!column.align) ? `text-${column.align}` : ''}`" v-for="column in columns"
               :key="column.field">
@@ -97,8 +116,8 @@
                   <q-tooltip>Ações do registro</q-tooltip>
                   <q-menu>
                     <q-list>
-                      <q-item v-show="typeof a.hide == 'function' ? !a.hide(row) : !a.hide" v-for="(a, idx) in Actions"
-                        :key="idx" clickable v-close-popup @click="a.fn(row)">
+                      <q-item v-show="typeof a.hide == 'function' ? !a.hide(row) : !a.hide"
+                        v-for="(a, idx) in RowActions" :key="idx" clickable v-close-popup @click="a.fn(row)">
                         <q-item-section v-if="a.icon" side>
                           <q-icon size="sm" :name="a.icon"></q-icon>
                         </q-item-section>
@@ -115,8 +134,8 @@
           </tr>
         </tbody>
 
-        <!-- Empty -->
-        <tbody v-if="rowsInPage.length == 0 && !showLoader">
+        <!-- Empty State -->
+        <tbody v-if="state == 'empty'">
           <tr>
             <td class="q-pa-lg text-center" :colspan="columns.length">
               <div>
@@ -131,8 +150,8 @@
           </tr>
         </tbody>
 
-        <!-- Loading -->
-        <tbody v-if="showLoader">
+        <!-- Loading State -->
+        <tbody v-if="state == 'loading'">
           <tr>
             <td class="q-pa-lg text-center" :colspan="columns.length">
               <div>
@@ -150,7 +169,7 @@
     </div>
 
     <!-- Pagination -->
-    <div class="row q-mt-lg" v-show="rowsInPage.length > 0 && !showLoader">
+    <div class="row q-mt-lg" v-show="state == 'ready'">
       <div :class="`col-12 col-md-6 ${$q.screen.lt.md ? 'text-center' : ''}`">
         <div>
           Mostrar
@@ -183,26 +202,41 @@
 </template>
 
 <script>
+// Services:
+import Http from '../../../services/http'
+import Utils from '../../../services/utils'
+
 export default {
-  name: 'datatable-component',
+  name: 'ui-toolcase-gadgets-datatable',
 
   props: {
     Name: {
       type: String,
       required: true
     },
-    PaginationDefaults: Object,
-    Columns: Object,
-    RawData: Object,
-    Actions: Object,
-    LoadDataFn: Function,
-    Filter: Function,
-    ExportXLS: String,
+    modelValue: {
+      type: Object,
+      required: true
+    },
+    DataURL: {
+      type: String,
+      required: true
+    },
+    Columns: {
+      type: Object,
+      required: true
+    },
+    RowActions: Object,
+    ExtraFilters: Object,
+    Export: Object,
     Printable: Boolean,
+    BeforeLoad: Function,
+    OnLoaded: Function,
   },
 
   data() {
     return {
+      // Pagination related vars:
       pagination: {
         pages: [],
         currentPage: 1,
@@ -216,44 +250,40 @@ export default {
         sortBy: null,
         sortDir: 'ASC',
       },
+
+      // Filters related vars:
       searchTerm: null,
-      columns: [],
-      visibleColumns: [],
       showFilterPanel: false,
       filterParams: {},
-      filterTimeoutIndex: null,
-      rowsInPage: [],
+
+      // Columns settings:
+      visibleColumns: [],
+      columns: [],
+
+      // Data:
+      rawData: [],
+      dataInPage: [],
+      loadTimeout: null,
+
+      // State:
       loading: false,
       showLoader: true,
-      loadTimeout: null,
-      loadTimeout: null
+      errorState: false
     }
   },
 
   watch: {
-    loading(isLoading) {
-      this.showLoader = isLoading;
-    },
-
-    RawData: {
-      handler(data) {
-        this.paginate(data);
-        // turn off loading indicator
-        this.loading = false
-      },
-      deep: true
-    },
-
     searchTerm() {
       this.showLoader = true;
       this.pagination.currentPage = 1;
       clearTimeout(this.loadTimeout);
 
-      this.loadTimeout = setTimeout(() => {
+      this.loadTimeout = setTimeout(async () => {
         if (!!this.searchTerm)
           localStorage.setItem(`Datatable.${this.Name}.searchTerm`, this.searchTerm)
         else localStorage.removeItem(`Datatable.${this.Name}.searchTerm`)
-        this.loadData()
+
+        this.rawData = (await this.loadData()).data;
       }, 200);
     },
 
@@ -265,7 +295,7 @@ export default {
       localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
       clearTimeout(this.loadTimeout);
 
-      this.loadTimeout = setTimeout(this.loadData, 200);
+      this.loadTimeout = setTimeout(async () => this.rawData = (await this.loadData()).data, 200);
     },
 
     'pagination.limit'() {
@@ -278,7 +308,7 @@ export default {
       localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
       clearTimeout(this.loadTimeout);
 
-      this.loadTimeout = setTimeout(this.loadData, 200);
+      this.loadTimeout = setTimeout(async () => this.rawData = (await this.loadData()).data, 200);
     },
 
     'pagination.sortBy'() {
@@ -289,7 +319,7 @@ export default {
       localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
       clearTimeout(this.loadTimeout);
 
-      this.loadTimeout = setTimeout(this.loadData, 200);
+      this.loadTimeout = setTimeout(async () => this.rawData = (await this.loadData()).data, 200);
     },
 
     'pagination.sortDir'() {
@@ -300,7 +330,21 @@ export default {
       localStorage.setItem(`Datatable.${this.Name}.pagination`, JSON.stringify(persistedPagination))
       clearTimeout(this.loadTimeout);
 
-      this.loadTimeout = setTimeout(this.loadData, 200);
+      this.loadTimeout = setTimeout(async () => this.rawData = (await this.loadData()).data, 200);
+    },
+
+    filterParams: {
+      handler(v) {
+        this.filterHandler(v, 'filters')
+      },
+      deep: true
+    },
+
+    ExtraFilters: {
+      handler(v) {
+        this.filterHandler(v, 'extrafilters');
+      },
+      deep: true
     },
 
     visibleColumns(newVal) {
@@ -311,40 +355,30 @@ export default {
       localStorage.setItem(`Datatable.${this.Name}.visibleColumns`, JSON.stringify(newVal));
     },
 
-    filterParams: {
-      handler() {
-        // Save filters state:
-        localStorage.removeItem(`Datatable.${this.Name}.filters`);
+    loading(isLoading) {
+      this.showLoader = isLoading;
+    },
 
-        if (Object.keys(this.filterParams).length > 0)
-          localStorage.setItem(`Datatable.${this.Name}.filters`, JSON.stringify(this.filterParams));
-
-        this.showLoader = true;
-        this.pagination.currentPage = 1;
-        clearTimeout(this.filterTimeoutIndex);
-
-        for (let k in this.filterParams) {
-          if (this.filterParams[k] == null)
-            delete this.filterParams[k] == null
-        }
-
-        this.filterTimeoutIndex = setTimeout(() => {
-          this.loadData()
-        }, 200);
+    rawData: {
+      handler(data) {
+        this.paginate(data);
+        // Expose factory:
+        this.exposeFactory();
+        // turn off loading indicator
+        this.loading = false
       },
       deep: true
-    }
-
+    },
   },
 
   computed: {
     showActions() {
-      for (let i = 0; i < this.Actions.length; i++) {
-        let a = this.Actions[i];
+      for (let i = 0; i < this.RowActions.length; i++) {
+        let a = this.RowActions[i];
         if (!!a.hide) {
           if (typeof a.hide == 'function') {
-            for (let j = 0; j < this.rowsInPage.length; i++) {
-              let row = this.rowsInPage[j];
+            for (let j = 0; j < this.dataInPage.length; i++) {
+              let row = this.dataInPage[j];
               if (!a.hide(row)) return true;
             }
           } else return !a.hide;
@@ -377,11 +411,64 @@ export default {
 
         return { label: clm.label, ...clm.filter };
       }).filter(item => item != null);
+    },
+
+    exportOptions() {
+      var typeIcons = {
+        xls: 'fas fa-file-excel',
+      };
+      var typeLabels = {
+        xls: 'Exportar XLS',
+      };
+
+      if (!(this.Export instanceof Array))
+        return [{
+          ...this.Export,
+          icon: typeIcons[this.Export.filetype],
+          label: typeLabels[this.Export.filetype]
+        }];
+
+      return this.Export.map((opt) => ({
+        ...opt,
+        icon: typeIcons[opt.filetype],
+        label: typeLabels[opt.filetype]
+      }));
+    },
+
+    state() {
+      if (this.showLoader) return 'loading';
+      if (this.errorState) return 'error';
+      if (this.dataInPage.length > 0) return 'ready';
+      if (this.dataInPage.length == 0) return 'empty';
+    },
+
+    rowMap(row) {
+
     }
   },
 
   methods: {
+    filterHandler(filtersObject, name) {
+      // Save filters state:
+      localStorage.removeItem(`Datatable.${this.Name}.${name}`);
+
+      if (Object.keys(filtersObject).length > 0)
+        localStorage.setItem(`Datatable.${this.Name}.${name}`, JSON.stringify(filtersObject));
+
+      this.showLoader = true;
+      this.pagination.currentPage = 1;
+      clearTimeout(this.loadTimeout);
+
+      for (let k in filtersObject) {
+        if (filtersObject[k] == null)
+          delete filtersObject[k] == null
+      }
+
+      this.loadTimeout = setTimeout(async () => this.rawData = (await this.loadData()).data, 200);
+    },
+
     setParams() {
+      // Pagination Params:
       var result = {
         '$sort_by': this.pagination.sortBy,
         '$sort_direction': this.pagination.sortDir,
@@ -436,12 +523,15 @@ export default {
         else filterParams[k] = this.filterParams[k]
       }
 
-      result = {
-        ...result, ...filterParams
-      };
-      if (!!this.Filter) result = { ...this.Filter(), ...result };
+      result = { ...result, ...filterParams };
 
-      this.$emit('params-changed', result);
+      var extraFilters = {};
+      if (!!this.ExtraFilters)
+        for (let k in this.ExtraFilters)
+          if (!!this.ExtraFilters[k])
+            extraFilters[k] = this.ExtraFilters[k];
+
+      result = { ...result, ...extraFilters };
 
       return result;
     },
@@ -484,13 +574,41 @@ export default {
       }
     },
 
-    async loadData() {
+    reload() {
+      clearTimeout(this.loadTimeout);
+
+      this.loadTimeout = setTimeout(async () => {
+        this.rawData = (await this.loadData()).data;
+      }, 200);
+    },
+
+    async loadData(ignorePagination) {
       if (!this.loading) {
         // turn on loading indicator
         this.loading = true;
 
-        // fetch data from server
-        await this.LoadDataFn(this.setParams())
+        var params = this.setParams();
+        if (!!ignorePagination) {
+          delete params.$page;
+          delete params.$limit;
+        }
+
+        try {
+          // Before Load callback:
+          if (this.BeforeLoad) await this.BeforeLoad(params);
+
+          // fetch data from server
+          var response = await Http.get(this.DataURL, params);
+
+          // On Loaded callback:
+          if (this.OnLoaded) await this.OnLoaded(response);
+
+          return response;
+        } catch (err) {
+          this.loading = false;
+          this.errorState = true;
+          this.$emit('error-thrown', err);
+        }
       }
     },
 
@@ -525,14 +643,138 @@ export default {
 
       this.pagination.pageLastIndex = data.length < this.pagination.limit ? data.length - 1 : this.pagination.limit - 1;
 
-      this.rowsInPage = [];
+      this.dataInPage = [];
       for (let i = 0; i <= this.pagination.pageLastIndex; i++) {
-        this.rowsInPage.push(this.RawData[i]);
+        this.dataInPage.push(this.rawData[i]);
       }
 
-      if (this.rowsInPage.length == 0 && this.pagination.currentPage > 1) {
+      if (this.dataInPage.length == 0 && this.pagination.currentPage > 1) {
         this.goToPage('prev');
       }
+    },
+
+    async exportFile(filetype, filename) {
+      filename = filename.indexOf(`.${filetype}`) ? filename : `${filename}.${filetype}`;
+
+      var data = (await this.loadData(true)).data;
+      var blobType;
+      var content;
+      switch (filetype) {
+        case 'xls':
+          blobType = "application/vnd.ms-excel;charset=utf-8;";
+          content = this.buildContentTable(data);
+          break;
+      }
+
+      // Cria um blob com o conteúdo do arquivo
+      const blob = new Blob([content], { type: blobType });
+
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", filename);
+
+      link.style.visibility = "hidden";
+
+      // Adiciona o link ao DOM e dispara o clique
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      this.loading = false;
+    },
+
+    async printData() {
+      var data = (await this.loadData(true)).data;
+      this.loading = false;
+
+      const content = `${this.buildContentTable(data)}`;
+
+      // Open a new window or tab for printing
+      const newWindow = window.open();
+      newWindow.document.open();
+      newWindow.document.write(content);
+      newWindow.document.close();
+      newWindow.print();
+    },
+
+    exposeFactory() {
+      this.$emit('update:model-value', {
+        state: this.state,
+        params: this.setParams(),
+        rawData: this.rawData,
+        dataInPage: this.dataInPage,
+        visibleColumns: this.visibleColumns,
+        reload: this.reload
+      });
+    },
+
+    escapeXml(value) {
+      if (value === null || value === undefined) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    },
+
+    buildContentTable(data) {
+      // Início do XML
+      let content = `
+      <?xml version="1.0" encoding="UTF-8"?>
+  <html xmlns:o="urn:schemas-microsoft-com:office:office"
+        xmlns:x="urn:schemas-microsoft-com:office:excel"
+        xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <style>
+        table {
+          border-collapse: collapse;
+          width: 100%;
+        }
+        th, td {
+          border: 1px solid #000;
+          padding: 5px;
+          text-align: left;
+        }
+        th {
+          background-color: #f4f4f4;
+          text-align: center;
+        }
+      </style>
+      <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    </head>
+    <body>
+  <table>
+    <thead>
+      <tr>
+        ${this.Columns
+          .filter(column => this.visibleColumns.includes(column.field))
+          .map(column => `<th>${this.escapeXml(column.label)}</th>`).join("")}
+      </tr>
+    </thead>
+    <tbody>
+  `;
+
+      // Adiciona as linhas
+      for (let j = 0; j < data.length; j++) {
+        content += '<tr>';
+        let row = data[j];
+
+        for (let i = 0; i < this.Columns.length; i++) {
+          let clm = this.Columns[i];
+          if (!(this.visibleColumns.includes(clm.field))) continue;
+          content += `<td>${row[clm.field]}</td>`;
+        }
+        content += '</tr>';
+      }
+      // Fecha o XML
+      content += `
+    </tbody>
+  </table>
+  `;
+
+      return content;
     }
   },
 
@@ -540,7 +782,7 @@ export default {
     // Set columns:
     this.columns = [...this.Columns];
     this.visibleColumns = JSON.parse(localStorage.getItem(`Datatable.${this.Name}.visibleColumns`)) ?? this.Columns.map(clm => clm.field)
-    if (this.Actions && this.Actions?.length > 0)
+    if (this.RowActions && this.RowActions?.length > 0)
       this.columns.push({
         name: 'actions',
         label: 'Ações',
@@ -585,8 +827,6 @@ export default {
         setTimeout(() => this.pagination.currentPage = persistedPagination.currentPage, 200);
       }
     }
-
-    this.$emit('reload-fn', this.loadData);
   },
 }
 </script>
