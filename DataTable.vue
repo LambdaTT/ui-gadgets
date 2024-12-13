@@ -440,10 +440,11 @@ export default {
       if (this.errorState) return 'error';
       if (this.dataInPage.length > 0) return 'ready';
       if (this.dataInPage.length == 0) return 'empty';
+      return null;
     },
 
     rowMap(row) {
-
+      return null;
     }
   },
 
