@@ -442,10 +442,6 @@ export default {
       if (this.dataInPage.length == 0) return 'empty';
       return null;
     },
-
-    rowMap(row) {
-      return null;
-    }
   },
 
   methods: {
