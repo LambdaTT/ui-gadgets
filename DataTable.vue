@@ -761,7 +761,7 @@ export default {
         for (let i = 0; i < this.Columns.length; i++) {
           let clm = this.Columns[i];
           if (!(this.visibleColumns.includes(clm.field))) continue;
-          content += `<td>${row[clm.field]}</td>`;
+          content += `<td>${clm.format ? clm.format(row) : row[clm.field]}</td>`;
         }
         content += '</tr>';
       }
