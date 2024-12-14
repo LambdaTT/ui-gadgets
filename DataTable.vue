@@ -37,7 +37,8 @@
         </q-btn>
       </div>
       <div class="col-12 col-md-4">
-        <q-input dense square filled clearable label="Pesquisar na lista" v-model="searchTerm">
+        <q-input v-if="searchableColumns.length > 0" dense square filled clearable label="Pesquisar na lista"
+          v-model="searchTerm">
           <template v-slot:append>
             <q-icon size="xs" name="fas fa-search" color="grey-8" />
           </template></q-input>
@@ -442,6 +443,19 @@ export default {
       if (this.dataInPage.length == 0) return 'empty';
       return null;
     },
+
+    searchableColumns() {
+      var searchableColumns = [];
+      for (let i = 0; i < this.columns.length; i++) {
+        let column = this.columns[i];
+        if (!column.field || column.field == '' || column.searchable === false) continue;
+        if (column.field in this.filterParams) continue;
+
+        searchableColumns.push(column);
+      }
+
+      return searchableColumns;
+    }
   },
 
   methods: {
@@ -476,30 +490,22 @@ export default {
       // Search:
       if (this.searchTerm) {
         let f = null;
-        var filterableColumns = [];
-        for (let i = 0; i < this.columns.length; i++) {
-          let column = this.columns[i];
-          if (!column.field || column.field == '' || column.searchable === false) continue;
-          if (column.field in this.filterParams) continue;
 
-          filterableColumns.push(column);
-        }
-
-        for (let i = 0; i < filterableColumns.length; i++) {
-          let column = filterableColumns[i];
+        for (let i = 0; i < this.searchableColumns.length; i++) {
+          let column = this.searchableColumns[i];
 
           f = column.field;
 
           // First field:
           if (i == 0) {
-            if (i == filterableColumns.length - 1) {
+            if (i == this.searchableColumns.length - 1) {
               result[f] = '$startFilterGroup$lkof$endFilterGroup|' + this.searchTerm;
             } else {
               result[f] = '$startFilterGroup$lkof|' + this.searchTerm;
             }
           }
           // All fields in the middle:
-          else if (i < (filterableColumns.length - 1)) {
+          else if (i < (this.searchableColumns.length - 1)) {
             result[f] = '$or$lkof|' + this.searchTerm;
           }
           // Last field:
@@ -761,7 +767,7 @@ export default {
         for (let i = 0; i < this.Columns.length; i++) {
           let clm = this.Columns[i];
           if (!(this.visibleColumns.includes(clm.field))) continue;
-          content += `<td>${clm.format ? clm.format(row) : row[clm.field]}</td>`;
+          content += `<td>${!!clm.format ? clm.format(row) : (!!row[clm.field] ? row[clm.field] : '')}</td>`;
         }
         content += '</tr>';
       }
@@ -839,6 +845,7 @@ export default {
 table {
   width: 100%;
   border-collapse: collapse;
+  overflow-y: scroll;
 }
 
 thead {
