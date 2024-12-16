@@ -1,7 +1,7 @@
 <template>
-  <div>
+  <div class="q-pa-xs q-pa-md-none">
     <!-- Options and Controls -->
-    <div class="row q-pb-md">
+    <div class="row q-pb-sm">
       <div class="col-12 col-md-8">
         <q-btn v-if="columnFilters.length > 0" flat round color="primary" size="sm" icon="fas fa-filter"
           @click="showFilterPanel = !showFilterPanel">
@@ -36,6 +36,8 @@
           <q-tooltip>Imprimir</q-tooltip>
         </q-btn>
       </div>
+
+      <!-- Search Field -->
       <div class="col-12 col-md-4">
         <q-input v-if="searchableColumns.length > 0" dense square filled clearable label="Pesquisar na lista"
           v-model="searchTerm">
