@@ -84,7 +84,7 @@
         <thead>
           <tr>
             <th v-show="visibleColumns.includes(column.field) || column.name == 'actions'"
-              :class="`q-pa-sm ${!!column.sort ? 'cursor-pointer' : ''}`" v-for="column in columns" :key="column.field"
+              :class="`${dense? 'q-pa-xs':'q-pa-sm'} ${!!column.sort ? 'cursor-pointer' : ''} text-center`" v-for="column in columns" :key="column.field"
               @click="sort(column)">
               {{ column.label }}
               <q-icon v-if="!!column.sort" size="0.9em" :name="getSortIcon(column)"
@@ -98,7 +98,7 @@
         <tbody v-if="state == 'ready'">
           <tr v-for="(row, idx) in dataInPage" :key="idx">
             <td v-show="visibleColumns.includes(column.field) || column.name == 'actions'"
-              :class="`q-pa-sm ${(!!column.align) ? `text-${column.align}` : ''}`" v-for="column in columns"
+              :class="`${dense? 'q-pa-xs':'q-pa-sm'} ${(!!column.align) ? `text-${column.align}` : ''}`" v-for="column in columns"
               :key="column.field">
 
               <div v-if="column.name != 'actions'">
@@ -115,7 +115,7 @@
 
               <!-- Especial td of actions -->
               <div class="text-center" v-if="column.name == 'actions' && showActions">
-                <q-btn flat dense color="primary" icon="fas fa-ellipsis-v">
+                <q-btn v-if="showActionsBtnInRow(row)"   flat dense color="primary" icon="fas fa-ellipsis-v">
                   <q-tooltip>Ações do registro</q-tooltip>
                   <q-menu>
                     <q-list>
@@ -235,6 +235,7 @@ export default {
     Printable: Boolean,
     BeforeLoad: Function,
     OnLoaded: Function,
+    dense: Boolean,
   },
 
   data() {
@@ -378,7 +379,7 @@ export default {
     showActions() {
       for (let i = 0; i < this.RowActions.length; i++) {
         let a = this.RowActions[i];
-        if (!!a.hide) {
+        if ('hide' in a) {
           if (typeof a.hide == 'function') {
             for (let j = 0; j < this.dataInPage.length; i++) {
               let row = this.dataInPage[j];
@@ -461,6 +462,25 @@ export default {
   },
 
   methods: {
+    showActionsBtnInRow(row) {
+      var show = false;
+      for (let i = 0; i < this.RowActions.length; i++) {
+        let a = this.RowActions[i];
+        if ('hide' in a) {
+          if (typeof a.hide == 'function') {
+            if(!a.hide(row)) {
+              show = true;
+            }
+          } else {
+            if(!a.hide) {
+              show = true;
+            }
+          }
+        }
+      }
+      return show;
+    },
+
     filterHandler(filtersObject, name) {
       // Save filters state:
       localStorage.removeItem(`Datatable.${this.Name}.${name}`);
@@ -855,6 +875,10 @@ thead {
   position: sticky;
   z-index: 2;
   background-color: white;
+}
+
+td, th {
+  min-width: 125px;
 }
 
 tbody>tr:nth-child(even) {
